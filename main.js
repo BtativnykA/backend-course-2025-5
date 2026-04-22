@@ -1,10 +1,10 @@
-const http = require('http');
 const fs = require('fs').promises;
+const http = require('http');
 const path = require('path');
-const { program } = require('commander');
+const { Command } = require('commander');
 const superagent = require('superagent');
 
-// Налаштування commander
+const program = new Command();
 program
   .requiredOption('-h, --host <host>', 'адреса сервера')
   .requiredOption('-p, --port <port>', 'порт сервера')
@@ -13,135 +13,100 @@ program
 program.parse(process.argv);
 const options = program.opts();
 
-const host = options.host;
-const port = parseInt(options.port, 10);
-const cacheDir = path.resolve(options.cache);
-
-// Створення директорії кешу
-async function initCacheDir() {
+async function ensureCacheDir() {
   try {
-    await fs.access(cacheDir);
+    await fs.access(options.cache);
   } catch {
-    await fs.mkdir(cacheDir, { recursive: true });
-    console.log(`Cache directory created: ${cacheDir}`);
+    await fs.mkdir(options.cache, { recursive: true });
+    console.log(`Створено директорію кешу: ${options.cache}`);
   }
 }
 
-// Отримання шляху до файлу за кодом статусу
-function getFilePath(statusCode) {
-  return path.join(cacheDir, `${statusCode}.jpg`);
+function getCachePath(code) {
+  return path.join(options.cache, `${code}.jpg`);
 }
 
-// Завантаження картинки з http.cat
-async function fetchFromHttpCat(statusCode) {
-  const url = `https://http.cat/${statusCode}`;
-  try {
-    const response = await superagent.get(url);
-    return response.body;
-  } catch (err) {
-    if (err.status === 404) {
-      return null;
+async function downloadFromHttpCat(code) {
+  const url = `https://http.cat/${code}`;
+  const response = await superagent.get(url).responseType('arraybuffer');
+  return response.body;
+}
+
+async function startServer() {
+  await ensureCacheDir();
+
+  const server = http.createServer(async (req, res) => {
+    const code = req.url.slice(1);
+    if (!code) {
+      res.statusCode = 404;
+      res.end('Not Found');
+      return;
     }
-    throw err;
-  }
-}
 
-// Запуск сервера
-const server = http.createServer(async (req, res) => {
-  console.log(`${req.method} ${req.url}`);
-  
-  // Отримуємо код статусу з URL
-  const statusCode = req.url.slice(1);
-  const filePath = getFilePath(statusCode);
-  
-  // Перевірка, чи код статусу валідний
-  if (!statusCode || isNaN(parseInt(statusCode))) {
-    res.writeHead(400, { 'Content-Type': 'text/plain' });
-    res.end('Bad Request: Status code required');
-    return;
-  }
-  
-  try {
-    switch (req.method) {
-      case 'GET':
-        // GET: спочатку перевіряємо кеш
+    const filePath = getCachePath(code);
+
+    // Сувора перевірка методу
+    if (req.method === 'GET') {
+      try {
+        const image = await fs.readFile(filePath);
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.end(image);
+        console.log(`GET /${code} -> з кешу`);
+      } catch {
+        console.log(`GET /${code} -> немає в кеші, запит до http.cat`);
         try {
-          const cachedImage = await fs.readFile(filePath);
-          console.log(`Cache HIT: ${statusCode}`);
-          res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-          res.end(cachedImage);
-        } catch (err) {
-          if (err.code === 'ENOENT') {
-            // Немає в кеші - завантажуємо з http.cat
-            console.log(`Cache MISS: ${statusCode}, fetching from http.cat`);
-            const image = await fetchFromHttpCat(statusCode);
-            
-            if (!image) {
-              res.writeHead(404, { 'Content-Type': 'text/plain' });
-              res.end('Not Found: Image not available on http.cat');
-              return;
-            }
-            
-            // Зберігаємо в кеш
-            await fs.writeFile(filePath, image);
-            console.log(`Cached: ${statusCode}`);
-            
-            // Відправляємо відповідь
-            res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-            res.end(image);
-          } else {
-            throw err;
-          }
+          const image = await downloadFromHttpCat(code);
+          await fs.writeFile(filePath, image);
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.end(image);
+        } catch {
+          res.statusCode = 404;
+          res.end('Not Found');
         }
-        break;
-        
-      case 'PUT':
-        // PUT: зберегти картинку в кеш
-        const chunks = [];
-        req.on('data', chunk => chunks.push(chunk));
-        req.on('end', async () => {
-          const imageBuffer = Buffer.concat(chunks);
-          await fs.writeFile(filePath, imageBuffer);
-          console.log(`PUT: ${statusCode} saved to cache`);
-          res.writeHead(201, { 'Content-Type': 'text/plain' });
-          res.end('Created: Image saved to cache');
-        });
-        break;
-        
-      case 'DELETE':
-        // DELETE: видалити картинку з кешу
+      }
+    } 
+    else if (req.method === 'PUT') {
+      const chunks = [];
+      req.on('data', chunk => chunks.push(chunk));
+      req.on('end', async () => {
+        const image = Buffer.concat(chunks);
         try {
-          await fs.unlink(filePath);
-          console.log(`DELETE: ${statusCode} removed from cache`);
-          res.writeHead(200, { 'Content-Type': 'text/plain' });
-          res.end('OK: Image deleted from cache');
-        } catch (err) {
-          if (err.code === 'ENOENT') {
-            res.writeHead(404, { 'Content-Type': 'text/plain' });
-            res.end('Not Found: Image not in cache');
-          } else {
-            throw err;
-          }
+          await fs.writeFile(filePath, image);
+          res.statusCode = 201;
+          res.end('Created');
+          console.log(`PUT /${code} -> збережено`);
+        } catch {
+          res.statusCode = 500;
+          res.end('Internal Server Error');
         }
-        break;
-        
-      default:
-        res.writeHead(405, { 'Content-Type': 'text/plain' });
-        res.end('Method Not Allowed');
+      });
+    } 
+    else if (req.method === 'DELETE') {
+      try {
+        await fs.access(filePath);
+        await fs.unlink(filePath);
+        res.statusCode = 200;
+        res.end('Deleted');
+        console.log(`DELETE /${code} -> видалено`);
+      } catch {
+        res.statusCode = 404;
+        res.end('Not Found');
+      }
+    } 
+    else {
+      // Будь-який інший метод (POST, PATCH, OPTIONS, тощо)
+      res.statusCode = 405;
+      res.end('Method Not Allowed');
+      console.log(`${req.method} /${code} -> 405`);
     }
-  } catch (err) {
-    console.error('Server error:', err);
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Internal Server Error');
-  }
-});
-
-// Ініціалізація та запуск
-initCacheDir().then(() => {
-  server.listen(port, host, () => {
-    console.log(`Proxy server running at http://${host}:${port}/`);
-    console.log(`Cache directory: ${cacheDir}`);
-    console.log('Methods: GET (with proxy), PUT, DELETE');
-    console.log('GET will fetch from https://http.cat if not cached');
   });
-});
+
+  server.listen(options.port, options.host, () => {
+    console.log(`Проксі-сервер запущено на http://${options.host}:${options.port}/`);
+    console.log(`Директорія кешу: ${options.cache}`);
+  });
+}
+
+startServer().catch(console.error);
