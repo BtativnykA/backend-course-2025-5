@@ -1,47 +1,43 @@
-# Тестування проксі-сервера (лаб5)
 npm run dev
 
-# 1. GET /200 (перший раз – кеш MISS, завантажує з http.cat)
-curl -v http://localhost:3000/200 --output cat200_1.jpg
+GET /200 (перший раз – кеш MISS, завантажує з http.cat)
+    curl -v http://localhost:3000/200 --output cat200_1.jpg
 
-# 2. GET /200 (другий раз – кеш HIT, бере з диска)
-curl -v http://localhost:3000/200 --output cat200_2.jpg
+GET /200 (другий раз – кеш HIT, бере з диска)
+    curl -v http://localhost:3000/200 --output cat200_2.jpg
 
-# 3. GET /201 (перший раз, кеш MISS)
-curl -v http://localhost:3000/201 --output cat201_1.jpg
+GET-запит до /405
+    curl -v http://localhost:3000/405 --output cat405.jpg
 
-# 4. PUT /418 (зберігаємо довільну картинку my.jpg для коду 418)
-curl -v -X PUT --data-binary @my.jpg http://localhost:3000/418
+GET /201 (перший раз, кеш MISS)
+    curl -v http://localhost:3000/201 --output cat201_1.jpg
 
-# 5. GET /418 (після PUT – має повернути збережену картинку)
-curl -v http://localhost:3000/418 --output cat418_from_put.jpg
+PUT /418 (зберігаємо довільну картинку my.jpg для коду 418)
+    curl -v -X PUT --data-binary @my.jpg http://localhost:3000/418
 
-# 6. DELETE /418 (видаляємо з кешу)
-curl -v -X DELETE http://localhost:3000/418
+GET /418 (після PUT – має повернути збережену картинку)
+    curl -v http://localhost:3000/418 --output cat418_from_put.jpg
 
-# 7. GET /418 (після DELETE – знову завантажує з http.cat)
-curl -v http://localhost:3000/418 --output cat418_again.jpg
+DELETE /418 (видаляємо з кешу)
+    curl -v -X DELETE http://localhost:3000/418
 
-# 8. GET /404 (перший раз, кеш MISS)
-curl -v http://localhost:3000/404 --output cat404.jpg
+GET /418 (після DELETE – знову завантажує з http.cat)
+    curl -v http://localhost:3000/418 --output cat418_again.jpg
 
-# 9. GET /999 (неіснуючий код – http.cat повертає 404, проксі повертає 404)
-curl -v http://localhost:3000/999
+GET /404 (перший раз, кеш MISS)
+    curl -v http://localhost:3000/404 --output cat404.jpg
 
-# 10. POST /200 (недозволений метод – має повернути 405)
-curl -v -X POST http://localhost:3000/200
+GET /999 (неіснуючий код – http.cat повертає 404, проксі повертає 404)
+    curl -v http://localhost:3000/999
 
-# 11. GET /201 (другий раз, кеш HIT – має бути швидко)
-curl -v http://localhost:3000/201 --output cat201_2.jpg
+POST /200 (недозволений метод – має повернути 405)
+    curl -v -X POST http://localhost:3000/200
 
-# 12. PUT /202 (збереження іншої довільної картинки, наприклад cat200_1.jpg)
-curl -v -X PUT --data-binary @cat200_1.jpg http://localhost:3000/202
+GET /201 (другий раз, кеш HIT – має бути швидко)
+    curl -v http://localhost:3000/201 --output cat201_2.jpg
 
-# 13. GET /202 (перевірка, що збережено)
-curl -v http://localhost:3000/202 --output cat202.jpg
+PUT /202 (збереження іншої довільної картинки, наприклад cat200_1.jpg)
+    curl -v -X PUT --data-binary @cat200_1.jpg http://localhost:3000/202
 
-# 14. DELETE /202
-curl -v -X DELETE http://localhost:3000/202
-
-# 15. GET /202 (після видалення – знову з http.cat)
-curl -v http://localhost:3000/202 --output cat202_after_delete.jpg
+GET /202 (після видалення – знову з http.cat)
+    curl -v http://localhost:3000/202 --output cat202_after_delete.jpg
